@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 from aiogram import Router, F
 from aiogram.types import Message
-from db import set_field, all_users
+from db import set_field
 from emojis import Emoji
 from functions_settings import load_settings
 router = Router()
@@ -37,10 +37,11 @@ async def set_nick(message: Message):
         await message.answer(
             f"{Emoji.note.value} Максимум {botData['symbolLimit']} символов")
         return
-    for u in await all_users():
-        if u["nick"] == nick and u["id"] != message.from_user.id:
-            await message.answer(f"{Emoji.cross.value} Ник занят")
-            return
+    from db import find_by_nick
+    existing = await find_by_nick(nick)
+    if existing and existing["id"] != message.from_user.id:
+        await message.answer(f"{Emoji.cross.value} Ник занят")
+        return
     await set_field(message.from_user.id, "nick", nick)
     await set_field(message.from_user.id, "custom_nick", 1)
     await message.answer(f"{Emoji.check.value} Ник изменён на «{nick}»")

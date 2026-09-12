@@ -22,6 +22,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN не задан в .env")
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+if not ADMIN_IDS:
+    raise RuntimeError("ADMIN_IDS пуст — добавь хотя бы одного админа в .env")
 LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID")
 LOG_CHANNEL_ID = int(LOG_CHANNEL_ID) if LOG_CHANNEL_ID else None
 PROXY_URL = os.getenv("PROXY_URL") or None  

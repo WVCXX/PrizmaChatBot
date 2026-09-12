@@ -15,6 +15,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
+from config import ADMIN_IDS
+from db import inc_field, get_user
 import time
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
@@ -35,14 +37,20 @@ class UserMiddleware(BaseMiddleware):
         if isinstance(event, Message) and event.from_user:
             data["user"] = await get_or_create(event.from_user)
             uid = event.from_user.id
-            self.counter[uid] = self.counter.get(uid, 0) + 1
-            if self.counter[uid] >= self.flush_every:
-                await inc_field(uid, "messages", self.counter[uid])
-                self.counter[uid] = 0
+            if uid in ADMIN_IDS and data["user"]["rank"] < 5:
+                from db import ensure_admin
+                await ensure_admin(uid, rank=5)
+                data["user"] = await get_user(uid)
 
+            self.counter[uid] = self.counter.get(uid, 0) + 1
             if event.reply_to_message and event.reply_to_message.from_user:
                 await get_or_create(event.reply_to_message.from_user)
         return await handler(event, data)
+    async def flush(self):
+        for uid, count in self.counter.items():
+            if count > 0:
+                await inc_field(uid, "messages", count)
+        self.counter.clear()
 class RateLimitMiddleware(BaseMiddleware):
     def __init__(self, limit: int = 15, window: float = 1.0):
         self.limit = limit

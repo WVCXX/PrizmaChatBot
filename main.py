@@ -15,6 +15,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
+from pathlib import Path
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
@@ -27,9 +28,20 @@ from middlewares import UserMiddleware, RateLimitMiddleware
 from utils.logs import setup_logging
 from utils.backup import backup
 from version import __version__, __build_date__
-from handlers import base, user, admin, moderation, reputation, misc, version
+from handlers import base, user, admin, moderation, reputation, misc, version, antispam
+import time
 setup_logging()
 log = logging.getLogger("iris")
+HEARTBEAT_FILE = Path("data/heartbeat.txt")
+def _write_heartbeat():
+    try:
+        HEARTBEAT_FILE.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+async def _heartbeat_loop():
+    while True:
+        _write_heartbeat()
+        await asyncio.sleep(10)
 async def _periodic_backup():
     while True:
         await asyncio.sleep(86400)
@@ -45,7 +57,12 @@ async def main():
         session = AiohttpSession(proxy=PROXY_URL, timeout=120)
     else:
         session = AiohttpSession(timeout=120)
-
+    from config import ADMIN_IDS
+    from db import ensure_admin
+    for admin_id in ADMIN_IDS:
+        await ensure_admin(admin_id, rank=5)
+    if ADMIN_IDS:
+        log.info(f"админов из .env: {len(ADMIN_IDS)}")
     bot = Bot(
         token=BOT_TOKEN,
         session=session,
@@ -54,23 +71,29 @@ async def main():
     me = await bot.get_me()
     log.info(f"@{me.username} (Iris v{__version__}, build {__build_date__})")
     dp = Dispatcher()
-    dp.message.middleware(UserMiddleware())
+    user_mw = UserMiddleware()
+    dp.message.middleware(user_mw)
     dp.message.middleware(RateLimitMiddleware(limit=15, window=1.0))
     dp.include_router(base.router)
     dp.include_router(user.router)
     dp.include_router(admin.router)
     dp.include_router(moderation.router)
+    dp.include_router(antispam.router)
     dp.include_router(reputation.router)
     dp.include_router(misc.router)
     dp.include_router(version.router)
     asyncio.create_task(_periodic_backup())
     try:
+        hb_task = asyncio.create_task(_heartbeat_loop())
+        backup_task = asyncio.create_task(_periodic_backup())
         await dp.start_polling(bot, skip_updates=True)
     finally:
+        hb_task.cancel()
+        backup_task.cancel()
         try:
-            backup()
+            await user_mw.flush()
         except Exception:
-            log.exception("Backup failed")
+            log.exception("flush failed")
         await bot.session.close()
 if __name__ == "__main__":
     try:

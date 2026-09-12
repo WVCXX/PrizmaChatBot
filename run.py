@@ -21,6 +21,9 @@ import time
 import logging
 from pathlib import Path
 import os
+HEARTBEAT_FILE = Path("data/heartbeat.txt")
+HEARTBEAT_TIMEOUT = 90
+CHECK_INTERVAL = 5
 os.makedirs("data", exist_ok=True)
 LOG_FILE = "data/Prizma_chat_bot.log"
 RESTART_DELAY = 5
@@ -34,7 +37,6 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("supervisor")
-
 BASE_DIR = Path(__file__).parent.resolve()
 def run_bot():
     proc = subprocess.Popen(
@@ -44,7 +46,23 @@ def run_bot():
         stderr=sys.stderr,
     )
     try:
-        return proc.wait()
+        while True:
+            try:
+                proc.wait(timeout=CHECK_INTERVAL)
+                return proc.returncode
+            except subprocess.TimeoutExpired:
+                pass
+            if HEARTBEAT_FILE.exists():
+                try:
+                    last = float(HEARTBEAT_FILE.read_text(encoding="utf-8"))
+                except Exception:
+                    last = 0
+                if time.time() - last > HEARTBEAT_TIMEOUT:
+                    log.warning(
+                        f"heartbeat устарел (>{HEARTBEAT_TIMEOUT}с), убиваю процесс"
+                    )
+                    proc.kill()
+                    return -1
     except KeyboardInterrupt:
         proc.terminate()
         try:

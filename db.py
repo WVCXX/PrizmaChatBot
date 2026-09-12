@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS achievements (
 );
 CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank);
 CREATE INDEX IF NOT EXISTS idx_users_rep ON users(reputation);
+CREATE INDEX IF NOT EXISTS idx_users_nick ON users(nick);
 CREATE INDEX IF NOT EXISTS idx_actions_moder ON actions(moder_id);
 CREATE INDEX IF NOT EXISTS idx_actions_target ON actions(target_id);
 CREATE INDEX IF NOT EXISTS idx_rep_to ON reputation_log(to_id);
@@ -109,6 +110,17 @@ async def get_user(user_id: int) -> dict | None:
         async with db.execute("SELECT * FROM users WHERE id=?", (user_id,)) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
+async def ensure_admin(user_id: int, rank: int = 5):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO users (id, nick) VALUES (?, ?)",
+            (user_id, f"id{user_id}"),
+        )
+        await db.execute(
+            "UPDATE users SET rank=? WHERE id=? AND rank<?",
+            (rank, user_id, rank),
+        )
+        await db.commit()
 async def create_user(user) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -154,6 +166,14 @@ async def find_by_username(username: str) -> dict | None:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM users WHERE LOWER(username)=LOWER(?)", (username,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+async def find_by_nick(nick: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM users WHERE nick=?", (nick,)
         ) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None

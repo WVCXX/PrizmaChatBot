@@ -28,6 +28,7 @@ from ranks import get_rank_name
 from emojis import Emoji
 from functions_settings import load_settings
 from config import LOG_CHANNEL_ID
+from utils.users import get_or_create
 router = Router()
 MUTE_PERMS = ChatPermissions(
     can_send_messages=False,
@@ -43,6 +44,11 @@ FULL_PERMS = ChatPermissions(
 )
 @router.message(Command("mute", "мут"))
 async def cmd_mute(message: Message, bot: Bot):
+    botData = load_settings()
+    moder = await get_user(message.from_user.id)
+    if moder["rank"] < botData["DKmute"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
     botData = load_settings()
     moder = await get_user(message.from_user.id)
     need = botData["DKmute"]
@@ -182,6 +188,11 @@ async def cmd_warn(message: Message, bot: Bot):
     await message.answer(text, parse_mode="HTML")
 @router.message(Command("warn_list", "варны"))
 async def cmd_warn_list(message: Message):
+    botData = load_settings()
+    moder = await get_user(message.from_user.id)
+    if moder["rank"] < botData["DKvarn"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
     from db import all_users
     users = [u for u in await all_users() if u["varn"] > 0]
     users.sort(key=lambda u: u["varn"], reverse=True)
@@ -203,7 +214,7 @@ async def cmd_kick(message: Message, bot: Bot):
         await message.answer(f"{Emoji.note.value} Недостаточно прав")
         return
     uid = message.reply_to_message.from_user.id
-    target = await get_user(uid)
+    target = await get_or_create(message.reply_to_message.from_user)
     if target["rank"] >= moder["rank"]:
         await message.answer(f"{Emoji.note.value} Нельзя кикнуть равного или выше")
         return
@@ -227,7 +238,7 @@ async def cmd_ban(message: Message, bot: Bot):
         await message.answer(f"{Emoji.note.value} Недостаточно прав")
         return
     uid = message.reply_to_message.from_user.id
-    target = await get_user(uid)
+    target = await get_or_create(message.reply_to_message.from_user)
     if target["rank"] >= moder["rank"]:
         await message.answer(f"{Emoji.note.value} Нельзя забанить равного или выше")
         return
@@ -241,6 +252,11 @@ async def cmd_ban(message: Message, bot: Bot):
         f"{Emoji.ban.value} {hlink(target['nick'], uid)} забанен", parse_mode="HTML")
 @router.message(Command("delete", "удалить"))
 async def cmd_delete(message: Message):
+    botData = load_settings()
+    moder = await get_user(message.from_user.id)
+    if moder["rank"] < botData["DKkick"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
     if not message.reply_to_message:
         await message.answer(f"{Emoji.note.value} Ответь на сообщение")
         return
@@ -280,6 +296,11 @@ async def cmd_report(message: Message, bot: Bot):
         parse_mode="HTML")
 @router.message(Command("note", "заметка"))
 async def cmd_note(message: Message):
+    botData = load_settings()
+    moder = await get_user(message.from_user.id)
+    if moder["rank"] < botData["DKvarn"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
     if not message.reply_to_message:
         await message.answer(f"{Emoji.note.value} Ответь на сообщение")
         return
@@ -292,6 +313,11 @@ async def cmd_note(message: Message):
     await message.answer(f"{Emoji.check.value} Заметка добавлена")
 @router.message(Command("notes", "заметки"))
 async def cmd_notes(message: Message):
+    botData = load_settings()
+    moder = await get_user(message.from_user.id)
+    if moder["rank"] < botData["DKvarn"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
     if not message.reply_to_message:
         await message.answer(f"{Emoji.note.value} Ответь на сообщение")
         return

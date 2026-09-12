@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![aiogram](https://img.shields.io/badge/aiogram-3.31-2CA5E0?logo=telegram&logoColor=white)](https://docs.aiogram.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-aiosqlite-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 Модерация, репутация, статистика и развлечения — всё в одном боте.
 
@@ -245,3 +245,7 @@ pytest
 Сделано с ❤️ для Prizma chat
 
 </div>
+
+## Лицензия
+
+GPLv3 — см. [LICENSE](LICENSE).
