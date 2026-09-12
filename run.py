@@ -20,6 +20,8 @@ import sys
 import time
 import logging
 from pathlib import Path
+import os
+os.makedirs("data", exist_ok=True)
 LOG_FILE = "data/Prizma_chat_bot.log"
 RESTART_DELAY = 5
 MAX_RESTART_DELAY = 300  
