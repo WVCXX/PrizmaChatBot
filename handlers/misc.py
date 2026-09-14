@@ -22,10 +22,6 @@ from aiogram.types import Message
 from emojis import Emoji
 router = Router()
 
-@router.message(F.text.func(lambda t: t and t.upper().startswith("ПИНГ")))
-async def ping(message: Message):
-    await message.answer("ПОНГ")
-
 @router.message(F.text.func(lambda t: t and t.upper().startswith("ПИУ")))
 async def piu(message: Message):
     await message.answer("ПАУ")

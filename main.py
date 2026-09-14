@@ -30,7 +30,9 @@ from utils.logs import setup_logging
 from utils.backup import backup
 from version import __version__, __build_date__
 from commands_menu import setup_commands
-from handlers import base, user, admin, moderation, reputation, misc, version, antispam, greeting,stats
+from handlers import (base, user, admin, moderation, reputation, misc,
+                      version, antispam, greeting, stats,
+                      rules, whois, fun, quotes, content, aliases_router)
 import time
 setup_logging()
 log = logging.getLogger("iris")
@@ -84,6 +86,7 @@ async def main():
     dp.chat_member.outer_middleware(error_mw)
     dp.message.middleware(user_mw)
     dp.message.middleware(RateLimitMiddleware(limit=15, window=1.0))
+    dp.include_router(aliases_router.router)
     dp.include_router(base.router)
     dp.include_router(user.router)
     dp.include_router(admin.router)
@@ -93,6 +96,11 @@ async def main():
     dp.include_router(version.router)
     dp.include_router(greeting.router)
     dp.include_router(stats.router)
+    dp.include_router(rules.router)
+    dp.include_router(whois.router)
+    dp.include_router(fun.router)
+    dp.include_router(quotes.router)
+    dp.include_router(content.router)
     dp.include_router(antispam.router)
     hb_task = asyncio.create_task(_heartbeat_loop())
     backup_task = asyncio.create_task(_periodic_backup())

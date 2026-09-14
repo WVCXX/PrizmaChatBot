@@ -26,7 +26,6 @@ USER_COMMANDS = [
     BotCommand(command="rep",         description="+1 репутации (ответом)"),
     BotCommand(command="report",      description="Жалоба на юзера (ответом)"),
     BotCommand(command="ping",        description="Проверка работы"),
-    BotCommand(command="version",     description="Версия бота"),
 ]
 MODER_COMMANDS = USER_COMMANDS + [
     BotCommand(command="mod",         description="🛡 Панель действий (ответом)"),
