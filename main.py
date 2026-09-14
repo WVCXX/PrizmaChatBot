@@ -22,13 +22,15 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
-from config import BOT_TOKEN, PROXY_URL
-from db import init_db
-from middlewares import UserMiddleware, RateLimitMiddleware
+from config import BOT_TOKEN, PROXY_URL, ADMIN_IDS
+from db import init_db, close_db, ensure_admin
+from middlewares import ErrorMiddleware, UserMiddleware, RateLimitMiddleware
+from functions_settings import load_settings
 from utils.logs import setup_logging
 from utils.backup import backup
 from version import __version__, __build_date__
-from handlers import base, user, admin, moderation, reputation, misc, version, antispam
+from commands_menu import setup_commands
+from handlers import base, user, admin, moderation, reputation, misc, version, antispam, greeting,stats
 import time
 setup_logging()
 log = logging.getLogger("iris")
@@ -52,13 +54,12 @@ async def _periodic_backup():
             log.exception(f"ошибка бэкапа: {e}")
 async def main():
     await init_db()
+    load_settings()
     if PROXY_URL:
         log.info(f"прокси: {PROXY_URL.split('@')[-1]}")
         session = AiohttpSession(proxy=PROXY_URL, timeout=120)
     else:
         session = AiohttpSession(timeout=120)
-    from config import ADMIN_IDS
-    from db import ensure_admin
     for admin_id in ADMIN_IDS:
         await ensure_admin(admin_id, rank=5)
     if ADMIN_IDS:
@@ -70,22 +71,32 @@ async def main():
     )
     me = await bot.get_me()
     log.info(f"@{me.username} (Iris v{__version__}, build {__build_date__})")
+    try:
+        await setup_commands(bot)
+        log.info("меню команд зарегистрировано")
+    except Exception as e:
+        log.exception(f"не удалось зарегистрировать меню: {e}")
     dp = Dispatcher()
     user_mw = UserMiddleware()
+    error_mw = ErrorMiddleware()
+    dp.message.outer_middleware(error_mw)
+    dp.callback_query.outer_middleware(error_mw)
+    dp.chat_member.outer_middleware(error_mw)
     dp.message.middleware(user_mw)
     dp.message.middleware(RateLimitMiddleware(limit=15, window=1.0))
     dp.include_router(base.router)
     dp.include_router(user.router)
     dp.include_router(admin.router)
     dp.include_router(moderation.router)
-    dp.include_router(antispam.router)
     dp.include_router(reputation.router)
     dp.include_router(misc.router)
     dp.include_router(version.router)
-    asyncio.create_task(_periodic_backup())
+    dp.include_router(greeting.router)
+    dp.include_router(stats.router)
+    dp.include_router(antispam.router)
+    hb_task = asyncio.create_task(_heartbeat_loop())
+    backup_task = asyncio.create_task(_periodic_backup())
     try:
-        hb_task = asyncio.create_task(_heartbeat_loop())
-        backup_task = asyncio.create_task(_periodic_backup())
         await dp.start_polling(bot, skip_updates=True)
     finally:
         hb_task.cancel()
@@ -94,6 +105,10 @@ async def main():
             await user_mw.flush()
         except Exception:
             log.exception("flush failed")
+        try:
+            await close_db()
+        except Exception:
+            log.exception("close_db failed")
         await bot.session.close()
 if __name__ == "__main__":
     try:

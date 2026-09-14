@@ -72,7 +72,9 @@ def run_bot():
         raise
 def main():
     delay = RESTART_DELAY
+    HEARTBEAT_FILE.unlink(missing_ok=True)
     while True:
+        HEARTBEAT_FILE.unlink(missing_ok=True)
         start = time.time()
         try:
             code = run_bot()

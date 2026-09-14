@@ -15,5 +15,5 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-from . import base, user, admin, moderation, reputation, misc, version
-__all__ = ["base", "user", "admin", "moderation", "reputation", "misc", "version"]
+from . import base, user, admin, moderation, reputation, misc, version, antispam, greeting, stats
+__all__ = ["base", "user", "admin", "moderation", "reputation", "misc", "version", "antispam", "greeting", "stats"]

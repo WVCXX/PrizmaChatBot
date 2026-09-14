@@ -19,31 +19,36 @@ import datetime
 import time
 from collections import defaultdict, deque
 from aiogram import Router, Bot
-from aiogram.types import Message, ChatPermissions
 from aiogram.exceptions import TelegramAPIError
+from aiogram.types import ChatPermissions, Message
 from db import get_user, add_mute, log_action
+from emojis import Emoji
 from functions_settings import load_settings
 from utils.text import hlink
-from emojis import Emoji
 router = Router()
 MUTE_PERMS = ChatPermissions(
     can_send_messages=False,
     can_send_media_messages=False,
     can_send_other_messages=False,
     can_add_web_page_previews=False,
+    can_send_polls=False,
+    can_invite_users=False,
 )
 _buckets: dict[int, deque] = defaultdict(deque)
 @router.message()
 async def antiflood(message: Message, bot: Bot):
     if not message.from_user or message.from_user.is_bot:
         return
+    text = message.text or message.caption or ""
+    if text.startswith("/") or text.startswith("!"):
+        return
     botData = load_settings()
     cfg = botData.get("antiflood", {})
     if not cfg.get("enabled"):
         return
-    moder = await get_user(message.from_user.id)
-    if moder and moder["rank"] >= botData["DKmute"]:
-        return 
+    user = await get_user(message.from_user.id)
+    if user and user["rank"] >= botData["DKmute"]:
+        return
     limit = int(cfg.get("messages", 5))
     window = int(cfg.get("seconds", 10))
     mute_min = int(cfg.get("mute_minutes", 10))
@@ -73,9 +78,9 @@ async def antiflood(message: Message, bot: Bot):
         message.chat.id, bot.id, message.from_user.id,
         "mute", f"{mute_min}м", "антифлуд",
     )
-    nick = moder["nick"] if moder else message.from_user.full_name
     await message.answer(
-        f"{Emoji.mute.value} {hlink(nick, message.from_user.id)} "
+        f"{Emoji.mute.value} "
+        f"{hlink(message.from_user.full_name, message.from_user.id)} "
         f"замучен на {mute_min} мин (антифлуд)",
         parse_mode="HTML",
     )

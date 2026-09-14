@@ -15,9 +15,9 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-from aiogram import Router, Bot
+from aiogram import Router, Bot, F
 from aiogram.filters import Command
-from aiogram.types import Message, ChatPermissions
+from aiogram.types import Message, ChatPermissions,CallbackQuery
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from db import (get_user, inc_field, set_field, log_action,
                 add_mute, remove_mute, active_mutes, add_note, get_notes)
@@ -29,6 +29,10 @@ from emojis import Emoji
 from functions_settings import load_settings
 from config import LOG_CHANNEL_ID
 from utils.users import get_or_create
+from keyboards.moderation import mod_actions_keyboard
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ReplyKeyboardRemove
 router = Router()
 MUTE_PERMS = ChatPermissions(
     can_send_messages=False,
@@ -330,3 +334,230 @@ async def cmd_notes(message: Message):
     for n in notes:
         lines.append(f"• [{n['ts']}] {n['text']}")
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+class ModAction(StatesGroup):
+    waiting_reason = State()
+@router.message(Command("mod", "мод"))
+async def cmd_mod(message: Message, bot: Bot):
+    if not message.reply_to_message:
+        await message.answer(
+            f"{Emoji.note.value} Ответь на сообщение нарушителя и напиши /mod"
+        )
+        return
+    moder = await get_user(message.from_user.id)
+    botData = load_settings()
+    if moder["rank"] < botData["DKmute"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
+    target = message.reply_to_message.from_user
+    target_db = await get_or_create(target)
+    if target_db["rank"] >= moder["rank"]:
+        await message.answer(
+            f"{Emoji.note.value} Нельзя применять действия к равному или выше"
+        )
+        return
+    kb = mod_actions_keyboard(target.id)
+    await message.answer(
+        f"Действия для <b>{target.full_name}</b> (id <code>{target.id}</code>):",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+@router.callback_query(F.data.startswith("mod:"))
+async def cb_mod_action(cb: CallbackQuery, state: FSMContext, bot: Bot):
+    try:
+        _, action, arg, target_id_str = cb.data.split(":")
+        target_id = int(target_id_str)
+    except (ValueError, AttributeError):
+        await cb.answer("Некорректная кнопка", show_alert=True)
+        return
+    moder = await get_user(cb.from_user.id)
+    botData = load_settings()
+    if action == "cancel":
+        try:
+            await cb.message.delete()
+        except TelegramAPIError:
+            pass
+        await cb.answer("Отменено")
+        return
+    target = await get_user(target_id)
+    if not target:
+        await cb.answer("Юзер не найден", show_alert=True)
+        return
+    if target["rank"] >= moder["rank"]:
+        await cb.answer("Нельзя применить к равному или выше", show_alert=True)
+        return
+    if action in ("mute", "warn"):
+        need = botData["DKmute"] if action == "mute" else botData["DKvarn"]
+        if moder["rank"] < need:
+            await cb.answer(
+                f"Нужен ранг {get_rank_name(botData, need, 1)}", show_alert=True
+            )
+            return
+        await state.set_state(ModAction.waiting_reason)
+        await state.update_data(
+            action=action,
+            arg=arg,
+            target_id=target_id,
+            chat_id=cb.message.chat.id,
+            moder_id=moder["id"],
+            message_id=cb.message.message_id,
+        )
+        label = "мута" if action == "mute" else "варна"
+        try:
+            await cb.message.edit_text(
+                f"✏️ Напиши причину {label} для "
+                f"{hlink(target['nick'], target_id)} "
+                f"или /skip, чтобы без причины.",
+                parse_mode="HTML",
+            )
+        except TelegramAPIError:
+            pass
+        await cb.answer()
+        return
+    if action == "kick":
+        need = botData["DKkick"]
+        if moder["rank"] < need:
+            await cb.answer(f"Нужен ранг {get_rank_name(botData, need, 1)}", show_alert=True)
+            return
+        try:
+            await bot.ban_chat_member(chat_id=cb.message.chat.id, user_id=target_id)
+            await bot.unban_chat_member(chat_id=cb.message.chat.id, user_id=target_id)
+        except TelegramAPIError as e:
+            await cb.answer(f"Ошибка: {e}", show_alert=True)
+            return
+        await log_action(cb.message.chat.id, moder["id"], target_id, "kick", "", "кнопкой")
+        try:
+            await cb.message.edit_text(
+                f"{Emoji.kick.value} {hlink(target['nick'], target_id)} кикнут",
+                parse_mode="HTML",
+            )
+        except TelegramAPIError:
+            pass
+        await cb.answer("Кикнут")
+        return
+    if action == "ban":
+        need = botData["DKban"]
+        if moder["rank"] < need:
+            await cb.answer(f"Нужен ранг {get_rank_name(botData, need, 1)}", show_alert=True)
+            return
+        try:
+            await bot.ban_chat_member(chat_id=cb.message.chat.id, user_id=target_id)
+        except TelegramAPIError as e:
+            await cb.answer(f"Ошибка: {e}", show_alert=True)
+            return
+        await log_action(cb.message.chat.id, moder["id"], target_id, "ban", "", "кнопкой")
+        try:
+            await cb.message.edit_text(
+                f"{Emoji.ban.value} {hlink(target['nick'], target_id)} забанен",
+                parse_mode="HTML",
+            )
+        except TelegramAPIError:
+            pass
+        await cb.answer("Забанен")
+        return
+    await cb.answer("Неизвестное действие", show_alert=True)
+
+@router.message(ModAction.waiting_reason)
+async def mod_reason(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    await state.clear()
+    action = data.get("action")
+    arg = data.get("arg", "1")
+    target_id = data.get("target_id")
+    chat_id = data.get("chat_id")
+    if not target_id:
+        await message.answer("⚠️ Контекст потерян, начни заново")
+        return
+    text = (message.text or "").strip()
+    if text.lower() == "/skip" or text == "":
+        reason = ""
+    else:
+        reason = text
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=data["message_id"],
+            text="⏳ Применяю...",
+        )
+    except TelegramAPIError:
+        pass
+    target = await get_user(target_id)
+    moder = await get_user(data["moder_id"])
+    botData = load_settings()
+    if not target:
+        return
+    if action == "mute":
+        durations = {"1h": "1 час", "1d": "1 день", "7d": "7 дней"}
+        label = durations.get(arg, "1 час")
+        try:
+            dateTo = t2s(label)
+        except Exception:
+            return
+        try:
+            await bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=target_id,
+                permissions=MUTE_PERMS,
+                until_date=dateTo,
+            )
+        except TelegramAPIError:
+            return
+
+        await add_mute(target_id, chat_id, dateTo.isoformat(), reason)
+        await log_action(chat_id, moder["id"], target_id, "mute", label, reason)
+        result = (
+            f"{Emoji.mute.value} {hlink(target['nick'], target_id)} "
+            f"лишается права слова на {label}\n"
+            f"{Emoji.user.value} Модератор: {hlink(moder['nick'], moder['id'])}"
+        )
+        if reason:
+            result += f"\n{Emoji.comment.value} Причина: {reason}"
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=data["message_id"],
+                text=result,
+                parse_mode="HTML",
+            )
+        except TelegramAPIError:
+            pass
+        return
+    if action == "warn":
+        await inc_field(target_id, "varn", 1)
+        target = await get_user(target_id)
+        await log_action(chat_id, moder["id"], target_id, "warn", "1", reason)
+
+        if target["varn"] >= botData["varnLimit"]:
+            try:
+                await bot.ban_chat_member(chat_id=chat_id, user_id=target_id)
+            except TelegramAPIError:
+                return
+            await set_field(target_id, "varn", 0)
+            result = (
+                f"{Emoji.ban.value} {hlink(target['nick'], target_id)} "
+                f"получает бан навсегда (лимит предупреждений)"
+            )
+            if reason:
+                result += f"\n{Emoji.comment.value} Причина: {reason}"
+        else:
+            result = (
+                f"{Emoji.exclamation.value} {hlink(target['nick'], target_id)} "
+                f"получает предупреждение ({target['varn']}/{botData['varnLimit']})\n"
+                f"{Emoji.user.value} Модератор: {hlink(moder['nick'], moder['id'])}"
+            )
+            if reason:
+                result += f"\n{Emoji.comment.value} Причина: {reason}"
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=data["message_id"],
+                text=result,
+                parse_mode="HTML",
+            )
+        except TelegramAPIError:
+            pass
+        return
