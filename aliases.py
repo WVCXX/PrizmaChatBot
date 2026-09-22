@@ -57,12 +57,13 @@ ALIASES: dict[str, list[str]] = {
     "set":          ["сет", "set"],
 
     #экономика
-    "balance":      ["бал", "баланс", "б", "кошелёк", "balance"],
+    "balance":      ["бал", "баланс", "кошелёк", "balance"],
     "daily":        ["дейли", "бонус", "ежедневка", "daily"],
     "pay":          ["перевод", "заплатить", "pay"],
     "rob":          ["ограбить", "rob"],
     "bank":         ["банк", "bank"],
     "shop":         ["магазин", "shop"],
+    "buy":          ["купить", "buy"],
 
     #уровни
     "level":        ["лвл", "уровень", "опыт", "level"],
@@ -78,6 +79,14 @@ ALIASES: dict[str, list[str]] = {
     "quote":        ["цитата", "ц", "quote"],
     "random":       ["рандом", "случайное", "random"],
     "mystats":      ["моя стата", "моя статистика", "mystats"],
+    "fish":         ["рыбалка", "рыбачить", "рыба", "fish"],
+    # статистика чата
+    "chat_stats":       ["стата чата", "chat_stats"],
+    "chat_stats_hour":  ["стата по часам", "chat_stats_hour"],
+    "chat_stats_day":   ["стата по дням", "chat_stats_day"],
+    "chat_stats_week":  ["стата по неделям", "chat_stats_week"],
+    "chat_stats_month": ["стата по месяцам", "chat_stats_month"],
+    "chat_stats_all":   ["стата за всё время", "chat_stats_all"],
     # редактирование контента
     "greeting":     ["приветствие", "greeting"],
     "rule_add":     ["правило добавить", "rule_add"],

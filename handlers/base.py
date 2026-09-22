@@ -28,41 +28,43 @@ START_TIME = time.time()
 async def _profile_text(user_id: int) -> str:
     u = await get_user(user_id)
     if not u:
-        return "📝 Нет информации"
+        return "Нет информации"
     mutes = {m["target_id"]: m for m in await active_mutes()}
     mute_info = f"до {mutes[user_id]['until']}" if user_id in mutes else "нет"
     return (
-        f"👤 <b>{u['nick']}</b> (id: <code>{u['id']}</code>)\n"
-        f"⭐ Ранг: <b>{u['rank']}</b>\n"
-        f"👍 Репутация: <b>{u['reputation']}</b>\n"
-        f"⚠️ Варнов: <b>{u['varn']}</b>\n"
-        f"🔇 Мут: <b>{mute_info}</b>\n"
-        f"💎 Баланс: <b>{u.get('balance', 0)}</b>\n"
-        f"💬 Сообщений: <b>{u.get('messages', 0)}</b>\n"
-        f"📅 В чате с: <b>{u.get('joined_at', '?')}</b>"
+        f"<b>{u['nick']}</b> (id: <code>{u['id']}</code>)\n"
+        f"Ранг: <b>{u['rank']}</b>\n"
+        f"Репутация: <b>{u['reputation']}</b>\n"
+        f"Варнов: <b>{u['varn']}</b>\n"
+        f"Мут: <b>{mute_info}</b>\n"
+        f"Баланс: <b>{u.get('balance', 0)}</b>\n"
+        f"Банк: <b>{u.get('bank', 0)}</b>\n"
+        f"Стрик: <b>{u.get('daily_streak', 0)}</b>\n"
+        f"Сообщений: <b>{u.get('messages', 0)}</b>\n"
+        f"В чате с: <b>{u.get('joined_at', '?')}</b>"
     )
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     await message.answer(
-        "👋 Привет! Я — <b>Iris</b>, бот чата <b>Prizma</b>.\n\n"
+        "Привет! Я — <b>Iris</b>, бот чата <b>Prizma</b>.\n\n"
         "Напиши /help, чтобы увидеть команды.",
         parse_mode="HTML")
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Юзеру", callback_data="help_user"),
-         InlineKeyboardButton(text="🛡 Модератору", callback_data="help_moder")],
-        [InlineKeyboardButton(text="👑 Админу", callback_data="help_admin"),
-         InlineKeyboardButton(text="🎮 Развлечения", callback_data="help_fun")],
+        [InlineKeyboardButton(text="Юзеру", callback_data="help_user"),
+         InlineKeyboardButton(text="Модератору", callback_data="help_moder")],
+        [InlineKeyboardButton(text="Админу", callback_data="help_admin"),
+         InlineKeyboardButton(text="Развлечения", callback_data="help_fun")],
     ])
-    await message.answer("📖 <b>Помощь</b>\nВыбери раздел:",
+    await message.answer("<b>Помощь</b>\nВыбери раздел:",
                          reply_markup=kb, parse_mode="HTML")
 @router.callback_query(F.data.startswith("help_"))
 async def help_cb(cb: CallbackQuery):
     section = cb.data[5:]
     texts = {
         "user": (
-            "<b>👤 Пользователю</b>\n"
+            "<b>Пользователю</b>\n"
             "/id — узнать id\n"
             "/profile — профиль\n"
             "/me — свой профиль\n"
@@ -74,7 +76,7 @@ async def help_cb(cb: CallbackQuery):
             "/report — жалоба (ответом)"
         ),
         "moder": (
-            "<b>🛡 Модератору</b>\n"
+            "<b>Модератору</b>\n"
             "/mute — мут (ответом)\n"
             "/unmute — размут\n"
             "/warn — предупреждение\n"
@@ -85,7 +87,7 @@ async def help_cb(cb: CallbackQuery):
             "/note — заметка о юзере"
         ),
         "admin": (
-            "<b>👑 Админу</b>\n"
+            "<b>Админу</b>\n"
             "/promote — повысить\n"
             "/demote — понизить\n"
             "/snatvseh — снять всех\n"
@@ -95,7 +97,7 @@ async def help_cb(cb: CallbackQuery):
             "/admins — список админов"
         ),
         "fun": (
-            "<b>🎮 Развлечения</b>\n"
+            "<b>Развлечения</b>\n"
             "/dice — кубик\n"
             "/random — рандом число\n"
             "/ping — пинг"
@@ -112,7 +114,7 @@ async def cmd_ping(message: Message):
     d, rem = divmod(uptime, 86400)
     h, rem = divmod(rem, 3600)
     m, s = divmod(rem, 60)
-    await message.answer(f"🏓 Понг!\n⏱ Аптайм: {d}д {h}ч {m}м {s}с")
+    await message.answer(f"Понг!")
 @router.message(Command("id"))
 async def cmd_id(message: Message):
     if message.reply_to_message:
@@ -128,7 +130,7 @@ async def cmd_id(message: Message):
         return
     u = await find_by_username(target)
     if not u:
-        await message.answer("📝 Нет информации")
+        await message.answer("Нет информации")
         return
     await message.answer(str(u["id"]))
 @router.message(Command("profile"))
@@ -140,7 +142,7 @@ async def cmd_profile(message: Message):
         if len(parts) > 1:
             u = await find_by_username(parts[1].strip())
             if not u:
-                await message.answer("📝 Нет информации")
+                await message.answer("Нет информации")
                 return
             target_id = u["id"]
         else:

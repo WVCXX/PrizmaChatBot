@@ -32,7 +32,7 @@ from version import __version__, __build_date__
 from commands_menu import setup_commands
 from handlers import (base, user, admin, moderation, reputation, misc,
                       version, antispam, greeting, stats,
-                      rules, whois, fun, quotes, content, aliases_router)
+                      rules, whois, fun, quotes, content, aliases_router, chatstats, economy)
 import time
 setup_logging()
 log = logging.getLogger("iris")
@@ -101,6 +101,8 @@ async def main():
     dp.include_router(fun.router)
     dp.include_router(quotes.router)
     dp.include_router(content.router)
+    dp.include_router(economy.router)
+    dp.include_router(chatstats.router)
     dp.include_router(antispam.router)
     hb_task = asyncio.create_task(_heartbeat_loop())
     backup_task = asyncio.create_task(_periodic_backup())

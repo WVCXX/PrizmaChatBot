@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     balance     INTEGER DEFAULT 0,
     bank        INTEGER DEFAULT 0,
     last_daily  TEXT,
+    last_rob    TEXT,
+    daily_streak INTEGER DEFAULT 0,
     last_rep_given_to INTEGER,
     last_rep_time     TEXT,
     joined_at   TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -86,6 +88,85 @@ CREATE TABLE IF NOT EXISTS achievements (
     ts       TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, code)
 );
+CREATE TABLE IF NOT EXISTS farms (
+    user_id          INTEGER PRIMARY KEY,
+    last_fish        TEXT,
+    last_hunt        TEXT,
+    last_farm        TEXT,
+    seeds            INTEGER DEFAULT 0,
+    harvest_ready_at TEXT,
+    fish_caught      INTEGER DEFAULT 0,
+    hunt_kills       INTEGER DEFAULT 0,
+    harvest_total    INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS inventory (
+    user_id   INTEGER,
+    item_code TEXT,
+    qty       INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, item_code)
+);
+CREATE TABLE IF NOT EXISTS roles (
+    code     TEXT PRIMARY KEY,
+    name     TEXT,
+    emoji    TEXT,
+    price    INTEGER DEFAULT 0,
+    min_rank INTEGER DEFAULT 0,
+    enabled  INTEGER DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id   INTEGER PRIMARY KEY,
+    role_code TEXT,
+    until     TEXT
+);
+CREATE TABLE IF NOT EXISTS message_stats (
+    chat_id INTEGER,
+    date    TEXT,
+    hour    INTEGER,
+    count   INTEGER DEFAULT 0,
+    PRIMARY KEY (chat_id, date, hour)
+);
+CREATE TABLE IF NOT EXISTS duels (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER,
+    challenger INTEGER,
+    opponent   INTEGER,
+    bet        INTEGER,
+    status     TEXT DEFAULT 'pending',
+    winner     INTEGER,
+    ts         TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS ttt_games (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id  INTEGER,
+    player_x INTEGER,
+    player_o INTEGER,
+    board    TEXT,
+    turn     INTEGER,
+    status   TEXT DEFAULT 'active',
+    ts       TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS clans (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT UNIQUE,
+    owner_id   INTEGER,
+    balance    INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS clan_members (
+    clan_id   INTEGER,
+    user_id   INTEGER PRIMARY KEY,
+    role      TEXT DEFAULT 'member',
+    joined_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS clan_invites (
+    clan_id   INTEGER,
+    user_id   INTEGER,
+    ts        TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (clan_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_stats_chat_date ON message_stats(chat_id, date);
+CREATE INDEX IF NOT EXISTS idx_duels_status ON duels(status);
+CREATE INDEX IF NOT EXISTS idx_clan_members_clan ON clan_members(clan_id);
 CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank);
 CREATE INDEX IF NOT EXISTS idx_users_rep ON users(reputation);
 CREATE INDEX IF NOT EXISTS idx_users_nick ON users(nick);
@@ -96,6 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_rep_to ON reputation_log(to_id);
 ALLOWED_FIELDS = {
     "rank", "reputation", "varn", "balance", "bank",
     "nick", "custom_nick", "username", "last_daily",
+    "last_rob", "daily_streak",
     "last_rep_given_to", "last_rep_time", "messages",
 }
 _conn: aiosqlite.Connection | None = None
@@ -257,3 +339,38 @@ async def quotes_by_user(user_id: int, limit: int = 20) -> list[dict]:
         (user_id, limit),
     ) as cur:
         return [dict(r) for r in await cur.fetchall()]
+    
+async def inv_add(user_id: int, code: str, qty: int = 1):
+    await _conn.execute(
+        "INSERT INTO inventory (user_id, item_code, qty) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, item_code) DO UPDATE SET qty = qty + ?",
+        (user_id, code, qty, qty),
+    )
+    await _conn.commit()
+async def inv_remove(user_id: int, code: str, qty: int = 1) -> bool:
+    async with _conn.execute(
+        "SELECT qty FROM inventory WHERE user_id=? AND item_code=?",
+        (user_id, code),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or row["qty"] < qty:
+        return False
+    await _conn.execute(
+        "UPDATE inventory SET qty = qty - ? WHERE user_id=? AND item_code=?",
+        (qty, user_id, code),
+    )
+    await _conn.commit()
+    return True
+async def inv_all(user_id: int) -> list[dict]:
+    async with _conn.execute(
+        "SELECT * FROM inventory WHERE user_id=? AND qty>0 ORDER BY item_code",
+        (user_id,),
+    ) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+async def track_message_stat(chat_id: int, date: str, hour: int):
+    await _conn.execute(
+        "INSERT INTO message_stats (chat_id, date, hour, count) VALUES (?, ?, ?, 1) "
+        "ON CONFLICT(chat_id, date, hour) DO UPDATE SET count = count + 1",
+        (chat_id, date, hour),
+    )
+    await _conn.commit()

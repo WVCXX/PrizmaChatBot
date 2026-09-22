@@ -48,3 +48,14 @@ def t2s(time_str: str) -> datetime.datetime:
     if unit not in _UNITS:
         raise ValueError(f"Неизвестная единица: {unit}")
     return datetime.datetime.now() + datetime.timedelta(seconds=value * _UNITS[unit])
+def now_iso() -> str:
+    return datetime.datetime.now().isoformat()
+def parse_hhmm(s:str) -> datetime.datetime | None:
+    try:
+        h,m = s.strip().split(':')
+        h,m = int(h), int(m)
+        if not (0 <= h < 24 and 0 <= m < 60):
+            return None
+        return datetime.datetime.now().replace(hour=h, minute=m, second=0,microsecond=0)
+    except Exception:
+        return None

@@ -28,6 +28,10 @@ SAFE_NO_REPLY = {
     "top_balance", "top_level", "balance", "daily", "bank",
     "shop", "level", "achievements", "roll", "coin", "8ball",
     "choose", "dice", "slot", "quote", "quotes", "random", "mystats",
+    "chat_stats", "chat_stats_hour", "chat_stats_day",
+    "chat_stats_week", "chat_stats_month", "chat_stats_all",
+    "greeting",    "fish", "hunt", "farm", "inventory", "sell",
+    "balance", "daily", "pay", "rob", "bank", "shop", "buy",
     "greeting",
 }
 @router.message(F.text)
@@ -58,6 +62,8 @@ async def _call(canon: str, message: Message, bot: Bot) -> bool:
         quotes as quotes_mod,
         version as version_mod,
         content as content_mod,
+        chatstats as chatstats_mod,
+        economy as economy_mod,
     )
     table = {
         "help":         base.cmd_help,
@@ -72,6 +78,12 @@ async def _call(canon: str, message: Message, bot: Bot) -> bool:
         "top_active":   stats.cmd_top_active,
         "top_varn":     stats.cmd_top_varn,
         "mystats":      stats.cmd_stats,
+        "chat_stats":       chatstats_mod.cmd_chat_stats,
+        "chat_stats_hour":  chatstats_mod.cmd_chat_stats_hour,
+        "chat_stats_day":   chatstats_mod.cmd_chat_stats_day,
+        "chat_stats_week":  chatstats_mod.cmd_chat_stats_week,
+        "chat_stats_month": chatstats_mod.cmd_chat_stats_month,
+        "chat_stats_all":   chatstats_mod.cmd_chat_stats_all,
         "admins":       admin.cmd_admins,
         "get":          admin.cmd_get,
         "set":          admin.cmd_set,

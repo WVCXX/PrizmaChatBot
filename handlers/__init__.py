@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 from . import (base, user, admin, moderation, reputation, misc,
                version, antispam, greeting, stats,
-               rules, whois, fun, quotes, content, aliases_router)
+               rules, whois, fun, quotes, content, aliases_router, chatstats,economy)
 __all__ = ["base", "user", "admin", "moderation", "reputation",
            "misc", "version", "antispam", "greeting", "stats",
-           "rules", "whois", "fun", "quotes", "content", "aliases_router"]
+           "rules", "whois", "fun", "quotes", "content", "aliases_router","chatstats","economy"]

@@ -18,8 +18,9 @@ from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware
 from aiogram.types import Message, TelegramObject
 from config import ADMIN_IDS
-from db import ensure_admin, get_user, inc_field
+from db import ensure_admin, get_user, inc_field,track_message_stat
 from utils.users import get_or_create
+import datetime
 log = logging.getLogger("iris")
 class UserMiddleware(BaseMiddleware):
     def __init__(self, flush_every: int = 10):
@@ -46,6 +47,13 @@ class UserMiddleware(BaseMiddleware):
                 except Exception as e:
                     log.exception(f"inc_field(messages) failed for {uid}: {e}")
                 self.counter[uid] = 0
+            try:
+                now = datetime.datetime.now()
+                await track_message_stat(
+                    event.chat.id, now.strftime("%Y-%m-%d"), now.hour
+                )
+            except Exception as e:
+                log.exception(f"track_message_stat failed: {e}")
             if event.reply_to_message and event.reply_to_message.from_user:
                 await get_or_create(event.reply_to_message.from_user)
         return await handler(event, data)
