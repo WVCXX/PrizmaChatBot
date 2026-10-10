@@ -10,6 +10,13 @@ from db import get_user
 from config import ADMIN_IDS
 from functions_settings import load_settings, save_settings
 from emojis import Emoji
+from aiogram import F
+from aiogram.types import CallbackQuery
+from utils.confirm import (
+    ConfirmationError,
+    consume_confirmation,
+    request_confirmation,
+)
 router = Router()
 
 #какой ранг нужен для правки контента
@@ -109,10 +116,29 @@ async def cmd_rule_del(message: Message):
 async def cmd_rules_reset(message: Message):
     if not await _check(message):
         return
-    botData = load_settings()
-    botData["rules"] = []
-    save_settings(botData)
-    await message.answer(f"{Emoji.check.value} Все правила удалены")
+    await request_confirmation(
+        message,
+        action="rules_reset",
+        target_id=0,
+        payload={},
+        prompt=f"{Emoji.cross.value} Подтвердить удаление всех правил?",
+    )
+
+
+@router.callback_query(F.data.startswith("confirm:rules_reset:"))
+async def cb_confirm_rules_reset(cb: CallbackQuery):
+    try:
+        consume_confirmation(cb, "rules_reset")
+    except ConfirmationError as exc:
+        await cb.answer(str(exc), show_alert=True)
+        return
+    if not await _check(cb):
+        return
+    settings = load_settings()
+    settings["rules"] = []
+    save_settings(settings)
+    await cb.message.edit_text(f"{Emoji.check.value} Все правила удалены")
+    await cb.answer("Правила удалены")
 @router.message(Command("link_add", "ссылка"))
 async def cmd_link_add(message: Message):
     if not await _check(message):

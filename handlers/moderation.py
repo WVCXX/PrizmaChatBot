@@ -17,9 +17,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 from aiogram import Router, Bot, F
 from aiogram.filters import Command
-from aiogram.types import Message, ChatPermissions,CallbackQuery
+from aiogram.types import (
+    CallbackQuery,
+    ChatPermissions,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardMarkup,
+)
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
-from db import (get_user, inc_field, set_field, log_action,
+from db import (get_user, inc_field, set_field, log_action, all_users,
                 add_mute, remove_mute, active_mutes, add_note, get_notes)
 from utils.text import hlink, toSymbol
 from utils.time_parser import t2s, toDate
@@ -30,6 +37,12 @@ from functions_settings import load_settings
 from config import LOG_CHANNEL_ID
 from utils.users import get_or_create
 from keyboards.moderation import mod_actions_keyboard
+from utils.pagination import paginate, pagination_keyboard
+from utils.confirm import (
+    ConfirmationError,
+    consume_confirmation,
+    request_confirmation,
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardRemove
@@ -48,11 +61,6 @@ FULL_PERMS = ChatPermissions(
 )
 @router.message(Command("mute", "мут"))
 async def cmd_mute(message: Message, bot: Bot):
-    botData = load_settings()
-    moder = await get_user(message.from_user.id)
-    if moder["rank"] < botData["DKmute"]:
-        await message.answer(f"{Emoji.note.value} Недостаточно прав")
-        return
     botData = load_settings()
     moder = await get_user(message.from_user.id)
     need = botData["DKmute"]
@@ -128,16 +136,34 @@ async def cmd_unmute(message: Message, bot: Bot):
         parse_mode="HTML")
 @router.message(Command("mute_list", "муты"))
 async def cmd_mute_list(message: Message):
+    text, keyboard = await _mute_page(1)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+async def _mute_page(page: int) -> tuple[str, InlineKeyboardMarkup | None]:
     mutes = await active_mutes()
     if not mutes:
-        await message.answer("🔇 Активных мутов нет")
-        return
+        return "🔇 Активных мутов нет", None
+    page_mutes, current_page, total_pages = paginate(mutes, page)
     lines = [f"🔇 Активные муты ({len(mutes)}):"]
-    for m in mutes:
-        u = await get_user(m["target_id"])
-        nick = hlink(u["nick"], u["id"]) if u else f"id{m['target_id']}"
-        lines.append(f"• {nick} — до {m['until']} ({m['reason'] or 'без причины'})")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    for mute in page_mutes:
+        user = await get_user(mute["target_id"])
+        nick = hlink(user["nick"], user["id"]) if user else f"id{mute['target_id']}"
+        lines.append(
+            f"• {nick} — до {mute['until']} "
+            f"({mute['reason'] or 'без причины'})"
+        )
+    return "\n".join(lines), pagination_keyboard(
+        "mutes", current_page, total_pages
+    )
+@router.callback_query(F.data.startswith("page:mutes:"))
+async def cb_mute_page(cb: CallbackQuery):
+    try:
+        page = int(cb.data.split(":")[2])
+    except (AttributeError, IndexError, ValueError):
+        await cb.answer("Некорректная страница", show_alert=True)
+        return
+    text, keyboard = await _mute_page(page)
+    await cb.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await cb.answer()
 @router.message(Command("warn", "варн"))
 async def cmd_warn(message: Message, bot: Bot):
     botData = load_settings()
@@ -156,10 +182,22 @@ async def cmd_warn(message: Message, bot: Bot):
             count_str += ch
         else:
             break
-    if count_str and count_str not in ("-",):
-        count = int(count_str)
+    if count_str:
+        try:
+            count = int(count_str)
+        except ValueError:
+            await message.answer(
+                f"{Emoji.note.value} Количество предупреждений должно быть "
+                "положительным числом"
+            )
+            return
+        if count <= 0:
+            await message.answer(
+                f"{Emoji.note.value} Количество предупреждений должно быть "
+                "положительным числом"
+            )
+            return
         rest = rest[len(count_str):].strip()
-
     target, rest = await resolve_user(message, rest)
     if not target:
         await message.answer(f"{Emoji.note.value} Нет информации о юзере")
@@ -197,16 +235,43 @@ async def cmd_warn_list(message: Message):
     if moder["rank"] < botData["DKvarn"]:
         await message.answer(f"{Emoji.note.value} Недостаточно прав")
         return
-    from db import all_users
     users = [u for u in await all_users() if u["varn"] > 0]
-    users.sort(key=lambda u: u["varn"], reverse=True)
     if not users:
         await message.answer("⚠️ Предупреждённых нет")
         return
+    text, keyboard = await _warn_page(users, 1)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+async def _warn_page(
+    users: list[dict],
+    page: int,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    users.sort(key=lambda user: (-user["varn"], user["id"]))
+    page_users, current_page, total_pages = paginate(users, page)
     lines = [f"⚠️ Предупреждённые ({len(users)}):"]
-    for u in users[:30]:
-        lines.append(f"• {hlink(u['nick'], u['id'])} — {u['varn']}")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    for user in page_users:
+        lines.append(f"• {hlink(user['nick'], user['id'])} — {user['varn']}")
+    return "\n".join(lines), pagination_keyboard(
+        "warns", current_page, total_pages
+    )
+@router.callback_query(F.data.startswith("page:warns:"))
+async def cb_warn_page(cb: CallbackQuery):
+    settings = load_settings()
+    moderator = await get_user(cb.from_user.id)
+    if not moderator or moderator["rank"] < settings["DKvarn"]:
+        await cb.answer("Недостаточно прав", show_alert=True)
+        return
+    try:
+        page = int(cb.data.split(":")[2])
+    except (AttributeError, IndexError, ValueError):
+        await cb.answer("Некорректная страница", show_alert=True)
+        return
+    users = [user for user in await all_users() if user["varn"] > 0]
+    if not users:
+        await cb.answer("Предупреждённых нет", show_alert=True)
+        return
+    text, keyboard = await _warn_page(users, page)
+    await cb.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await cb.answer()
 @router.message(Command("kick", "кик"))
 async def cmd_kick(message: Message, bot: Bot):
     if not message.reply_to_message:
@@ -222,15 +287,52 @@ async def cmd_kick(message: Message, bot: Bot):
     if target["rank"] >= moder["rank"]:
         await message.answer(f"{Emoji.note.value} Нельзя кикнуть равного или выше")
         return
+    await request_confirmation(
+        message,
+        action="kick",
+        target_id=uid,
+        payload={"chat_id": message.chat.id},
+        prompt=f"{Emoji.kick.value} Подтвердить кик {hlink(target['nick'], uid)}?",
+    )
+@router.callback_query(F.data.startswith("confirm:kick:"))
+async def cb_confirm_kick(cb: CallbackQuery, bot: Bot):
     try:
-        await bot.ban_chat_member(chat_id=message.chat.id, user_id=uid)
-        await bot.unban_chat_member(chat_id=message.chat.id, user_id=uid)
-    except TelegramAPIError as e:
-        await message.answer(f"{Emoji.cross.value} Ошибка: {e}")
+        data = consume_confirmation(cb, "kick")
+    except ConfirmationError as exc:
+        await cb.answer(str(exc), show_alert=True)
         return
-    await log_action(message.chat.id, moder["id"], uid, "kick")
-    await message.answer(
-        f"{Emoji.kick.value} {hlink(target['nick'], uid)} кикнут", parse_mode="HTML")
+    moderator = await get_user(cb.from_user.id)
+    target = await get_user(data["target_id"])
+    settings = load_settings()
+    if (
+        not moderator
+        or moderator["rank"] < settings["DKkick"]
+        or not target
+        or target["rank"] >= moderator["rank"]
+    ):
+        await cb.answer("Права изменились; действие отменено", show_alert=True)
+        return
+    try:
+        await bot.ban_chat_member(
+            chat_id=data["chat_id"],
+            user_id=data["target_id"],
+        )
+        await bot.unban_chat_member(
+            chat_id=data["chat_id"],
+            user_id=data["target_id"],
+        )
+    except TelegramAPIError as exc:
+        await cb.message.edit_text(f"{Emoji.cross.value} Ошибка: {exc}")
+        await cb.answer()
+        return
+    await log_action(
+        data["chat_id"], moderator["id"], data["target_id"], "kick"
+    )
+    await cb.message.edit_text(
+        f"{Emoji.kick.value} {hlink(target['nick'], target['id'])} кикнут",
+        parse_mode="HTML",
+    )
+    await cb.answer("Кик выполнен")
 @router.message(Command("ban", "бан"))
 async def cmd_ban(message: Message, bot: Bot):
     if not message.reply_to_message:
@@ -246,14 +348,48 @@ async def cmd_ban(message: Message, bot: Bot):
     if target["rank"] >= moder["rank"]:
         await message.answer(f"{Emoji.note.value} Нельзя забанить равного или выше")
         return
+    await request_confirmation(
+        message,
+        action="ban",
+        target_id=uid,
+        payload={"chat_id": message.chat.id},
+        prompt=f"{Emoji.ban.value} Подтвердить бан {hlink(target['nick'], uid)}?",
+    )
+@router.callback_query(F.data.startswith("confirm:ban:"))
+async def cb_confirm_ban(cb: CallbackQuery, bot: Bot):
     try:
-        await bot.ban_chat_member(chat_id=message.chat.id, user_id=uid)
-    except TelegramAPIError as e:
-        await message.answer(f"{Emoji.cross.value} Ошибка: {e}")
+        data = consume_confirmation(cb, "ban")
+    except ConfirmationError as exc:
+        await cb.answer(str(exc), show_alert=True)
         return
-    await log_action(message.chat.id, moder["id"], uid, "ban")
-    await message.answer(
-        f"{Emoji.ban.value} {hlink(target['nick'], uid)} забанен", parse_mode="HTML")
+    moderator = await get_user(cb.from_user.id)
+    target = await get_user(data["target_id"])
+    settings = load_settings()
+    if (
+        not moderator
+        or moderator["rank"] < settings["DKban"]
+        or not target
+        or target["rank"] >= moderator["rank"]
+    ):
+        await cb.answer("Права изменились; действие отменено", show_alert=True)
+        return
+    try:
+        await bot.ban_chat_member(
+            chat_id=data["chat_id"],
+            user_id=data["target_id"],
+        )
+    except TelegramAPIError as exc:
+        await cb.message.edit_text(f"{Emoji.cross.value} Ошибка: {exc}")
+        await cb.answer()
+        return
+    await log_action(
+        data["chat_id"], moderator["id"], data["target_id"], "ban"
+    )
+    await cb.message.edit_text(
+        f"{Emoji.ban.value} {hlink(target['nick'], target['id'])} забанен",
+        parse_mode="HTML",
+    )
+    await cb.answer("Бан выполнен")
 @router.message(Command("delete", "удалить"))
 async def cmd_delete(message: Message):
     botData = load_settings()
@@ -334,9 +470,87 @@ async def cmd_notes(message: Message):
     for n in notes:
         lines.append(f"• [{n['ts']}] {n['text']}")
     await message.answer("\n".join(lines), parse_mode="HTML")
-
 class ModAction(StatesGroup):
     waiting_reason = State()
+class ModKeyboard(StatesGroup):
+    waiting_target = State()
+MOD_KEYBOARD_ACTIONS = {
+    "🔇 Мут": "mute",
+    "⚠️ Варн": "warn",
+    "👢 Кик": "kick",
+    "⛔ Бан": "ban",
+    "ℹ️ Инфо": "whois",
+}
+@router.message(Command("mod_kb"))
+async def cmd_mod_keyboard(message: Message):
+    settings = load_settings()
+    moderator = await get_user(message.from_user.id)
+    if not moderator or moderator["rank"] < settings["DKmute"]:
+        await message.answer(f"{Emoji.note.value} Недостаточно прав")
+        return
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔇 Мут"), KeyboardButton(text="⚠️ Варн")],
+            [KeyboardButton(text="👢 Кик"), KeyboardButton(text="⛔ Бан")],
+            [KeyboardButton(text="ℹ️ Инфо")],
+        ],
+        resize_keyboard=True,
+        is_persistent=False,
+    )
+    await message.answer(
+        f"{Emoji.shield.value} Выберите действие, затем ответьте "
+        "на сообщение пользователя.",
+        reply_markup=keyboard,
+    )
+@router.message(Command("mod_kb_off"))
+async def cmd_mod_keyboard_off(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        f"{Emoji.check.value} Клавиатура скрыта.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+@router.message(F.text.in_(tuple(MOD_KEYBOARD_ACTIONS)))
+async def select_mod_keyboard_action(message: Message, state: FSMContext):
+    action = MOD_KEYBOARD_ACTIONS[message.text]
+    await state.set_state(ModKeyboard.waiting_target)
+    await state.update_data(action=action)
+    await message.answer(
+        f"{Emoji.note.value} Теперь ответьте на сообщение пользователя."
+    )
+@router.message(ModKeyboard.waiting_target)
+async def run_mod_keyboard_action(
+    message: Message,
+    state: FSMContext,
+    bot: Bot,
+):
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.answer(
+            f"{Emoji.note.value} Нужно отправить действие ответом "
+            "на сообщение пользователя."
+        )
+        return
+    state_data = await state.get_data()
+    action = state_data.get("action")
+    if action not in MOD_KEYBOARD_ACTIONS.values():
+        await state.clear()
+        await message.answer(
+            f"{Emoji.cross.value} Контекст потерян. Выберите действие ещё раз."
+        )
+        return
+    await state.clear()
+    message.text = f"/{action}"
+    if action == "mute":
+        await cmd_mute(message, bot)
+    elif action == "warn":
+        await cmd_warn(message, bot)
+    elif action == "kick":
+        await cmd_kick(message, bot)
+    elif action == "ban":
+        await cmd_ban(message, bot)
+    else:
+        from handlers.whois import cmd_whois
+
+        await cmd_whois(message)
 @router.message(Command("mod", "мод"))
 async def cmd_mod(message: Message, bot: Bot):
     if not message.reply_to_message:
@@ -456,7 +670,6 @@ async def cb_mod_action(cb: CallbackQuery, state: FSMContext, bot: Bot):
         await cb.answer("Забанен")
         return
     await cb.answer("Неизвестное действие", show_alert=True)
-
 @router.message(ModAction.waiting_reason)
 async def mod_reason(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
@@ -506,7 +719,6 @@ async def mod_reason(message: Message, state: FSMContext, bot: Bot):
             )
         except TelegramAPIError:
             return
-
         await add_mute(target_id, chat_id, dateTo.isoformat(), reason)
         await log_action(chat_id, moder["id"], target_id, "mute", label, reason)
         result = (

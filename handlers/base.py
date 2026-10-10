@@ -43,6 +43,35 @@ async def _profile_text(user_id: int) -> str:
         f"Сообщений: <b>{u.get('messages', 0)}</b>\n"
         f"В чате с: <b>{u.get('joined_at', '?')}</b>"
     )
+def _help_keyboard(section: str | None = None) -> InlineKeyboardMarkup:
+    if section is None:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Юзеру", callback_data="help_user"),
+             InlineKeyboardButton(text="Модератору", callback_data="help_moder")],
+            [InlineKeyboardButton(text="Админу", callback_data="help_admin"),
+             InlineKeyboardButton(text="Развлечения", callback_data="help_fun")],
+            [InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
+        ])
+    section_order = ("user", "moder", "admin", "fun")
+    section_index = section_order.index(section)
+    buttons = [
+        InlineKeyboardButton(text="◀️ Назад", callback_data="help_root")
+    ]
+    if section_index < len(section_order) - 1:
+        next_section = section_order[section_index + 1]
+        next_labels = {
+            "moder": "Модератору",
+            "admin": "Админу",
+            "fun": "Развлечения",
+        }
+        buttons.append(InlineKeyboardButton(
+            text=f"Далее: {next_labels[next_section]} ▶️",
+            callback_data=f"help_{next_section}",
+        ))
+    return InlineKeyboardMarkup(inline_keyboard=[
+        buttons,
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
+    ])
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     await message.answer(
@@ -51,24 +80,28 @@ async def cmd_start(message: Message):
         parse_mode="HTML")
 @router.message(Command("help"))
 async def cmd_help(message: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Юзеру", callback_data="help_user"),
-         InlineKeyboardButton(text="Модератору", callback_data="help_moder")],
-        [InlineKeyboardButton(text="Админу", callback_data="help_admin"),
-         InlineKeyboardButton(text="Развлечения", callback_data="help_fun")],
-    ])
     await message.answer("<b>Помощь</b>\nВыбери раздел:",
-                         reply_markup=kb, parse_mode="HTML")
+                         reply_markup=_help_keyboard(), parse_mode="HTML")
+@router.callback_query(F.data == "help_close")
+async def help_close(cb: CallbackQuery):
+    if cb.message:
+        try:
+            await cb.message.delete()
+        except TelegramBadRequest:
+            pass
+    await cb.answer()
 @router.callback_query(F.data.startswith("help_"))
 async def help_cb(cb: CallbackQuery):
     section = cb.data[5:]
     texts = {
+        "root": "<b>Помощь</b>\nВыбери раздел:",
         "user": (
             "<b>Пользователю</b>\n"
             "/id — узнать id\n"
             "/profile — профиль\n"
             "/me — свой профиль\n"
             "/top — топ по репутации\n"
+            "/quotes — цитаты пользователя\n"
             "/rep — +1 репутации (ответом)\n"
             "+ник &lt;ник&gt; — сменить ник\n"
             "-ник — сбросить ник\n"
@@ -80,11 +113,12 @@ async def help_cb(cb: CallbackQuery):
             "/mute — мут (ответом)\n"
             "/unmute — размут\n"
             "/warn — предупреждение\n"
-            "/warn_list — список\n"
+            "/warn_list — список (страницы по 10)\n"
             "/kick — кик\n"
             "/ban — бан\n"
             "/delete — удалить сообщение\n"
-            "/note — заметка о юзере"
+            "/note — заметка о юзере\n"
+            "/mod_kb — клавиатура модератора"
         ),
         "admin": (
             "<b>Админу</b>\n"
@@ -94,7 +128,7 @@ async def help_cb(cb: CallbackQuery):
             "/sozdatel — вернуть создателя\n"
             "/set — изменить настройку\n"
             "/get — посмотреть настройки\n"
-            "/admins — список админов"
+            "/admins — список админов (страницы по 10)"
         ),
         "fun": (
             "<b>Развлечения</b>\n"
@@ -104,7 +138,15 @@ async def help_cb(cb: CallbackQuery):
         ),
     }
     try:
-        await cb.message.edit_text(texts.get(section, "?"), parse_mode="HTML")
+        await cb.message.edit_text(
+            texts.get(section, "?"),
+            reply_markup=(
+                _help_keyboard(section)
+                if section in ("user", "moder", "admin", "fun")
+                else _help_keyboard()
+            ),
+            parse_mode="HTML",
+        )
     except TelegramBadRequest:
         pass
     await cb.answer()

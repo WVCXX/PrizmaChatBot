@@ -15,11 +15,28 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
-from db import add_quote, random_quote, quotes_by_user, get_user, find_by_username
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+from db import (
+    add_quote,
+    count_quotes_by_user,
+    delete_quote,
+    find_by_username,
+    get_quote,
+    get_user,
+    quotes_by_user,
+    random_quote,
+)
+from config import ADMIN_IDS
+from functions_settings import load_settings
 from utils.text import hlink, is_id
+from utils.pagination import page_window, pagination_keyboard
 from emojis import Emoji
 router = Router()
 @router.message(Command("quote", "цитата"))
@@ -62,8 +79,43 @@ async def cmd_save_quote(message: Message):
     if len(text) > 500:
         await message.answer(f"{Emoji.note.value} Слишком длинно (макс. 500)")
         return
-    await add_quote(target.id, text, message.from_user.id)
-    await message.answer(f"{Emoji.check.value} Цитата сохранена")
+    quote_id = await add_quote(target.id, text, message.from_user.id)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🗑 Удалить",
+            callback_data=f"quote:del:{quote_id}",
+        )
+    ]])
+    await message.answer(
+        f"{Emoji.check.value} Цитата #{quote_id} сохранена",
+        reply_markup=keyboard,
+    )
+@router.callback_query(F.data.startswith("quote:del:"))
+async def cb_delete_quote(cb: CallbackQuery):
+    try:
+        quote_id = int(cb.data.split(":", maxsplit=2)[2])
+    except (AttributeError, IndexError, ValueError):
+        await cb.answer("Некорректный ID цитаты", show_alert=True)
+        return
+    quote = await get_quote(quote_id)
+    if not quote:
+        await cb.answer("Цитата уже удалена", show_alert=True)
+        return
+    actor_id = cb.from_user.id
+    actor = await get_user(actor_id)
+    settings = load_settings()
+    is_owner = actor_id in (quote["saved_by"], quote["user_id"])
+    is_moderator = (
+        actor_id in ADMIN_IDS
+        or (actor is not None and actor["rank"] >= settings["DKvarn"])
+    )
+    if not is_owner and not is_moderator:
+        await cb.answer("Удалить цитату может только её автор или модератор", show_alert=True)
+        return
+    await delete_quote(quote_id)
+    if cb.message:
+        await cb.message.edit_text(f"{Emoji.check.value} Цитата #{quote_id} удалена")
+    await cb.answer("Удалено")
 @router.message(Command("quotes", "цитаты"))
 async def cmd_quotes(message: Message):
     if message.reply_to_message:
@@ -82,15 +134,56 @@ async def cmd_quotes(message: Message):
                 target_id = u["id"]
         else:
             target_id = message.from_user.id
-    u = await get_user(target_id)
-    if not u:
+    user = await get_user(target_id)
+    if not user:
         await message.answer(f"{Emoji.note.value} Нет информации")
         return
-    quotes = await quotes_by_user(target_id, limit=20)
-    if not quotes:
+    text, keyboard = await _quotes_page(target_id, 1, user)
+    if text is None:
         await message.answer(f"{Emoji.note.value} Цитат нет")
         return
-    lines = [f"💬 <b>Цитаты {hlink(u['nick'], u['id'])}</b> ({len(quotes)}):\n"]
-    for q in quotes[:10]:
-        lines.append(f"• <i>{q['text'][:100]}</i>")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+async def _quotes_page(
+    target_id: int,
+    page: int,
+    user: dict | None = None,
+) -> tuple[str | None, InlineKeyboardMarkup | None]:
+    if user is None:
+        user = await get_user(target_id)
+    if not user:
+        return None, None
+    total = await count_quotes_by_user(target_id)
+    if not total:
+        return None, None
+    current_page, total_pages, offset = page_window(total, page)
+    quotes = await quotes_by_user(target_id, limit=10, offset=offset)
+    if not quotes:
+        return None, None
+    lines = [
+        f"💬 <b>Цитаты {hlink(user['nick'], user['id'])}</b> ({total}):\n"
+    ]
+    for quote in quotes:
+        lines.append(f"• <i>{quote['text'][:100]}</i>")
+    keyboard = pagination_keyboard(
+        f"quotes:{target_id}",
+        current_page,
+        total_pages,
+    )
+    return "\n".join(lines), keyboard
+@router.callback_query(F.data.startswith("page:quotes:"))
+async def cb_quotes_page(cb: CallbackQuery):
+    try:
+        _, _, target_id_text, page_text = cb.data.split(":", maxsplit=3)
+        if not target_id_text.isdigit() or not page_text.isdigit():
+            raise ValueError("page callback должен содержать числовые ID")
+        target_id = int(target_id_text)
+        page = int(page_text)
+    except (AttributeError, ValueError):
+        await cb.answer("Некорректная страница", show_alert=True)
+        return
+    text, keyboard = await _quotes_page(target_id, page)
+    if text is None:
+        await cb.answer("Цитат нет", show_alert=True)
+        return
+    await cb.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await cb.answer()

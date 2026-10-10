@@ -55,6 +55,7 @@ ALIASES: dict[str, list[str]] = {
     "admins":       ["админы", "кто админ", "admins"],
     "get":          ["настройки", "гет", "get"],
     "set":          ["сет", "set"],
+    "snatvseh":     ["snatvseh"],
 
     #экономика
     "balance":      ["бал", "баланс", "кошелёк", "balance"],

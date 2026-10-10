@@ -19,6 +19,8 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 import sys
+from db import db_healthcheck
+from functions_settings import load_settings
 from version import __version__, __build_date__, __author__
 router = Router()
 @router.message(Command("version", "версия", "v"))
@@ -32,3 +34,29 @@ async def cmd_version(message: Message):
         f"Python: <code>{sys.version.split()[0]}</code>",
         parse_mode="HTML",
     )
+@router.message(Command("health", "здоровье", "status"))
+async def cmd_health(message: Message):
+    db_state = await db_healthcheck()
+    settings_ok = False
+    settings_error = ""
+    try:
+        load_settings()
+        settings_ok = True
+    except Exception as exc:  
+        settings_error = str(exc)
+
+    status = "OK" if db_state["connected"] and settings_ok else "WARNING"
+    text = [
+        "<b>BOT STATUS</b>",
+        f"Статус: <code>{status}</code>",
+        f"БД: <code>{'OK' if db_state['connected'] else 'ERROR'}</code>",
+        f"Схема: <code>{db_state.get('schema_version', 0)}</code>",
+        f"Пользователи: <code>{db_state.get('users', 0)}</code>",
+        f"Настройки: <code>{'OK' if settings_ok else 'ERROR'}</code>",
+    ]
+    if settings_error:
+        text.append(f"Ошибка настроек: <code>{settings_error}</code>")
+    if db_state.get("errors"):
+        text.append(f"Ошибка БД: <code>{db_state['errors'][0]}</code>")
+
+    await message.answer("\n".join(text), parse_mode="HTML")

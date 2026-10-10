@@ -15,7 +15,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message
 from db import get_user, find_by_username, active_mutes, get_notes
@@ -69,3 +69,6 @@ async def cmd_whois(message: Message):
         f"Заметок: <b>{len(notes)}</b>"
     )
     await message.answer(text, parse_mode="HTML")
+@router.message(F.text == "?", F.reply_to_message)
+async def quick_whois(message: Message):
+    await cmd_whois(message)

@@ -18,15 +18,35 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import os
 from dotenv import load_dotenv
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+def parse_admin_ids(raw_value: str | None) -> list[int]:
+    if raw_value is None:
+        return []
+    result: list[int] = []
+    for item in str(raw_value).split(","):
+        value = item.strip()
+        if not value:
+            continue
+        try:
+            result.append(int(value))
+        except ValueError:
+            continue
+    return result
+def parse_log_channel_id(raw_value: str | None) -> int | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN не задан в .env")
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+ADMIN_IDS = parse_admin_ids(os.getenv("ADMIN_IDS"))
 if not ADMIN_IDS:
     raise RuntimeError("ADMIN_IDS пуст — добавь хотя бы одного админа в .env")
-LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID")
-LOG_CHANNEL_ID = int(LOG_CHANNEL_ID) if LOG_CHANNEL_ID else None
-PROXY_URL = os.getenv("PROXY_URL") or None  
+LOG_CHANNEL_ID = parse_log_channel_id(os.getenv("LOG_CHANNEL_ID"))
+PROXY_URL = (os.getenv("PROXY_URL") or "").strip() or None
 SETTINGS_FILE = "settings.json"
 DB_PATH = "data/iris.db"
 CHATS_DIR = "chats"

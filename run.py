@@ -19,15 +19,55 @@ import subprocess
 import sys
 import time
 import logging
-from pathlib import Path
 import os
+from pathlib import Path
 HEARTBEAT_FILE = Path("data/heartbeat.txt")
+LOCK_FILE = Path("data/supervisor.lock")
 HEARTBEAT_TIMEOUT = 90
 CHECK_INTERVAL = 5
 os.makedirs("data", exist_ok=True)
 LOG_FILE = "data/Prizma_chat_bot.log"
 RESTART_DELAY = 5
-MAX_RESTART_DELAY = 300  
+MAX_RESTART_DELAY = 300
+def _read_lock_pid(lock_path: Path) -> int | None:
+    try:
+        text = lock_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+def _pid_is_alive(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+def acquire_supervisor_lock():
+    while True:
+        try:
+            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+            return
+        except FileExistsError:
+            pid = _read_lock_pid(LOCK_FILE)
+            if _pid_is_alive(pid):
+                raise RuntimeError(f"supervisor уже запущен (pid {pid})")
+            try:
+                LOCK_FILE.unlink(missing_ok=True)
+            except OSError:
+                pass
+def release_supervisor_lock():
+    try:
+        LOCK_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -90,4 +130,12 @@ def main():
         else:
             delay = RESTART_DELAY
 if __name__ == "__main__":
-    main()
+    try:
+        acquire_supervisor_lock()
+        main()
+    except KeyboardInterrupt:
+        log.info("Выход по Ctrl+C")
+    except RuntimeError as exc:
+        log.warning(str(exc))
+    finally:
+        release_supervisor_lock()

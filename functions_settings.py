@@ -17,9 +17,50 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
+from typing import Any
 from config import SETTINGS_FILE
 log = logging.getLogger("iris")
+DEFAULT_SETTINGS = {
+    "varnLimit": 10,
+    "DKpovisit": 4,
+    "DKvarn": 1,
+    "DKvarnLimit": 4,
+    "DKmute": 3,
+    "DKsnatvseh": 5,
+    "DKban": 4,
+    "DKkick": 3,
+    "DKreport": 0,
+    "symbolLimit": 32,
+    "autodelete_service": 5,
+    "antiflood": {
+        "enabled": True,
+        "messages": 5,
+        "seconds": 10,
+        "mute_minutes": 10,
+    },
+    "antimat": {
+        "enabled": False,
+        "words": ["слово1", "слово2"],
+        "action": "warn",
+    },
+    "rank1": ["Младший Модератор", "Младшего Модератора", "Младшему Модератору", "Младшим Модератором", "Младшие Модераторы"],
+    "rank2": ["Старший Модератор", "Старшего Модератора", "Старшему Модератору", "Старшим Модератором", "Старшие Модераторы"],
+    "rank3": ["Младший Админ", "Младшего Админа", "Младшему Админу", "Младшим Админом", "Младшие Админы"],
+    "rank4": ["Старший Админ", "Старшего Админа", "Старшему Админу", "Старшим Админом", "Старшие Админы"],
+    "rank5": ["Создатель", "Создателя", "Создателю", "Создателем", "Создатели"],
+    "rules": [
+        "Уважай других участников.",
+        "Не спамь и не флуди.",
+        "Реклама — только с разрешения админов.",
+        "Общение по теме чата.",
+        "Слушай модераторов.",
+    ],
+    "links": {"Сайт": "https://example.com", "Канал": "https://t.me/example"},
+    "greeting": "добро пожаловать на сервер безумные зомби",
+}
 SCHEMA = {
     "varnLimit": int,
     "DKpovisit": int,
@@ -31,6 +72,7 @@ SCHEMA = {
     "DKkick": int,
     "DKreport": int,
     "symbolLimit": int,
+    "autodelete_service": int,
     "antiflood": dict,
     "antimat": dict,
     "rank1": list,
@@ -43,7 +85,43 @@ SCHEMA = {
     "greeting": str,
 }
 _cache: dict | None = None
-_cache_mtime: float = 0
+_cache_mtime_ns: int | None = None
+def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, indent=4, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+def ensure_default_settings(path: str | Path = SETTINGS_FILE) -> dict:
+    settings_path = Path(path)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    if not settings_path.exists():
+        _atomic_write_json(settings_path, DEFAULT_SETTINGS)
+        return json.loads(json.dumps(DEFAULT_SETTINGS))
+    try:
+        with settings_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        backup_path = settings_path.with_suffix(f"{settings_path.suffix}.bak")
+        if settings_path.exists():
+            backup_path.write_bytes(settings_path.read_bytes())
+        _atomic_write_json(settings_path, DEFAULT_SETTINGS)
+        return json.loads(json.dumps(DEFAULT_SETTINGS))
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{settings_path}: JSON должен содержать объект")
+    merged = json.loads(json.dumps(DEFAULT_SETTINGS))
+    merged.update(data)
+    return merged
 def validate(data: dict) -> list[str]:
     errors = []
     for key, expected in SCHEMA.items():
@@ -59,6 +137,12 @@ def validate(data: dict) -> list[str]:
         val = data.get(rank)
         if isinstance(val, list) and len(val) != 5:
             errors.append(f"'{rank}' должен содержать 5 форм, а не {len(val)}")
+    delete_delay = data.get("autodelete_service")
+    if isinstance(delete_delay, bool):
+        errors.append("'autodelete_service' должен быть целым числом")
+    elif isinstance(delete_delay, int):
+        if delete_delay < 0:
+            errors.append("'autodelete_service' не может быть отрицательным")
     af = data.get("antiflood")
     if isinstance(af, dict):
         for k in ("enabled", "messages", "seconds", "mute_minutes"):
@@ -71,14 +155,13 @@ def validate(data: dict) -> list[str]:
                 errors.append(f"antimat.{k} отсутствует")
     return errors
 def load_settings(force: bool = False) -> dict:
-    global _cache, _cache_mtime
+    global _cache, _cache_mtime_ns
     path = Path(SETTINGS_FILE)
-    if not path.exists():
-        raise FileNotFoundError(f"{SETTINGS_FILE} не найден")
-    mtime = path.stat().st_mtime
-    if _cache is not None and not force and mtime == _cache_mtime:
+    ensure_default_settings(path)
+    mtime_ns = path.stat().st_mtime_ns
+    if _cache is not None and not force and mtime_ns == _cache_mtime_ns:
         return _cache
-    with open(SETTINGS_FILE, encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         try:
             data = json.load(f)
         except json.JSONDecodeError as e:
@@ -86,25 +169,27 @@ def load_settings(force: bool = False) -> dict:
                 f"{SETTINGS_FILE}: ошибка JSON — {e.msg} "
                 f"(строка {e.lineno}, колонка {e.colno})"
             ) from e
-    errors = validate(data)
+    merged = json.loads(json.dumps(DEFAULT_SETTINGS))
+    merged.update(data)
+    errors = validate(merged)
     if errors:
         raise RuntimeError(
             f"{SETTINGS_FILE}: ошибки валидации:\n  - " + "\n  - ".join(errors)
         )
-    _cache = data
-    _cache_mtime = mtime
-    log.info(f"{SETTINGS_FILE} загружен ({len(data)} ключей)")
-    return data
+    _cache = merged
+    _cache_mtime_ns = mtime_ns
+    log.info(f"{SETTINGS_FILE} загружен ({len(merged)} ключей)")
+    return merged
 def save_settings(data: dict):
-    global _cache, _cache_mtime
+    global _cache, _cache_mtime_ns
     errors = validate(data)
     if errors:
         raise ValueError(
             "нельзя сохранить некорректные настройки:\n  - " + "\n  - ".join(errors)
         )
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    path = Path(SETTINGS_FILE)
+    _atomic_write_json(path, data)
     _cache = data
-    _cache_mtime = Path(SETTINGS_FILE).stat().st_mtime
+    _cache_mtime_ns = path.stat().st_mtime_ns
 def reload_settings() -> dict:
     return load_settings(force=True)

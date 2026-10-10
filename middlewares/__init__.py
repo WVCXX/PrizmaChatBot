@@ -18,5 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from .errors import ErrorMiddleware
 from .users import UserMiddleware
 from .ratelimit import RateLimitMiddleware
-
-__all__ = ["ErrorMiddleware", "UserMiddleware", "RateLimitMiddleware"]
+from .settings import SettingsMiddleware
+__all__ = [
+	"ErrorMiddleware",
+	"RateLimitMiddleware",
+	"SettingsMiddleware",
+	"UserMiddleware",
+]

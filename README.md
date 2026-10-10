@@ -130,7 +130,9 @@ LOG_CHANNEL_ID=-1001234567890
 PROXY_URL=
 ```
 
-В `settings.json` вы можете настроить всё под себя.
+В `settings.json` вы можете настроить всё под себя. Параметр
+`autodelete_service` задаёт задержку удаления служебных команд модерации
+в секундах; значение `0` отключает автоудаление.
 
 ### 5. Запуск
 
@@ -197,11 +199,11 @@ INFO:iris:Использую прокси: host:port
 
 ---
 
-## Тесты (планируется)
+## Тесты
 
 ```bash
-pip install pytest pytest-asyncio
-pytest
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 ---

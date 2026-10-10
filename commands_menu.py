@@ -21,9 +21,11 @@ USER_COMMANDS = [
     BotCommand(command="help",        description="Все команды"),
     BotCommand(command="profile",     description="Профиль"),
     BotCommand(command="me",          description="Свой профиль"),
+    BotCommand(command="id",          description="ID пользователя"),
     BotCommand(command="top",         description="Топ по репутации"),
     BotCommand(command="top_active",  description="Топ по сообщениям"),
     BotCommand(command="rep",         description="+1 репутации (ответом)"),
+    BotCommand(command="quotes",      description="Цитаты пользователя"),
     BotCommand(command="report",      description="Жалоба на юзера (ответом)"),
     BotCommand(command="ping",        description="Проверка работы"),
     BotCommand(command="chat_stats",  description="Статистика чата"),
@@ -31,9 +33,13 @@ USER_COMMANDS = [
     BotCommand(command="daily",       description="Ежедневный бонус"),
     BotCommand(command="bank",        description="Банк"),
     BotCommand(command="shop",        description="Магазин"),
+    BotCommand(command="version",     description="Версия бота"),
+    BotCommand(command="health",      description="Состояние бота"),
 ]
-MODER_COMMANDS = USER_COMMANDS + [
+MODER_COMMANDS = [
     BotCommand(command="mod",         description="🛡 Панель действий (ответом)"),
+    BotCommand(command="mod_kb",      description="🛡 Клавиатура модератора"),
+    BotCommand(command="mod_kb_off",  description="🛡 Скрыть клавиатуру"),
     BotCommand(command="mute",        description="🛡 Мут"),
     BotCommand(command="unmute",      description="🛡 Размут"),
     BotCommand(command="mute_list",   description="🛡 Активные муты"),
@@ -46,7 +52,7 @@ MODER_COMMANDS = USER_COMMANDS + [
     BotCommand(command="notes",       description="🛡 Заметки"),
     BotCommand(command="moder_stats", description="🛡 Стата модера"),
 ]
-ADMIN_COMMANDS = MODER_COMMANDS + [
+ADMIN_COMMANDS = [
     BotCommand(command="promote",     description="👑 Повысить"),
     BotCommand(command="demote",      description="👑 Понизить"),
     BotCommand(command="admins",      description="👑 Список админов"),
@@ -55,5 +61,15 @@ ADMIN_COMMANDS = MODER_COMMANDS + [
     BotCommand(command="set",         description="👑 Изменить настройку"),
     BotCommand(command="snatvseh",    description="👑 Снять всех"),
 ]
+def build_commands() -> list[BotCommand]:
+    commands: list[BotCommand] = []
+    seen: set[str] = set()
+    for group in (USER_COMMANDS, MODER_COMMANDS, ADMIN_COMMANDS):
+        for command in group:
+            if command.command in seen:
+                continue
+            seen.add(command.command)
+            commands.append(command)
+    return commands
 async def setup_commands(bot):
-    await bot.set_my_commands(USER_COMMANDS)
+    await bot.set_my_commands(build_commands())

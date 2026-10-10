@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 import logging
 from aiogram import Router, F, Bot
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from aiogram.dispatcher.event.bases import SkipHandler
 from aliases import resolve
@@ -35,25 +36,30 @@ SAFE_NO_REPLY = {
     "greeting",
 }
 @router.message(F.text)
-async def alias_dispatch(message: Message, bot: Bot):
+async def alias_dispatch(message: Message, bot: Bot, state: FSMContext):
     if not message.text:
         return
     canon, args = resolve(message.text)
     if not canon:
-        return
+        raise SkipHandler
     explicit = message.text.lstrip()[:1] in "!./"
     if not explicit and not message.reply_to_message:
         if canon not in SAFE_NO_REPLY:
-            return
+            raise SkipHandler
     fake = f"/{canon} {args}".strip() if args else f"/{canon}"
     try:
         message.text = fake
     except Exception:
         pass
-    handled = await _call(canon, message, bot)
+    handled = await _call(canon, message, bot, state)
     if handled:
         raise SkipHandler
-async def _call(canon: str, message: Message, bot: Bot) -> bool:
+async def _call(
+    canon: str,
+    message: Message,
+    bot: Bot,
+    state: FSMContext,
+) -> bool:
     from handlers import (
         base, admin, moderation, reputation, stats,
         rules as rules_mod,
@@ -85,6 +91,9 @@ async def _call(canon: str, message: Message, bot: Bot) -> bool:
         "chat_stats_month": chatstats_mod.cmd_chat_stats_month,
         "chat_stats_all":   chatstats_mod.cmd_chat_stats_all,
         "admins":       admin.cmd_admins,
+        "promote":      admin.promote,
+        "demote":       admin.demote,
+        "snatvseh":     admin.remove_all,
         "get":          admin.cmd_get,
         "set":          admin.cmd_set,
         "mute":         moderation.cmd_mute,
@@ -105,6 +114,7 @@ async def _call(canon: str, message: Message, bot: Bot) -> bool:
         "roll":         fun_mod.cmd_roll,
         "quote":        quotes_mod.cmd_quote,
         "quotes":       quotes_mod.cmd_quotes,
+        "quotes":       quotes_mod.cmd_quotes,
         "greeting":     content_mod.cmd_greeting,
         "rule_add":     content_mod.cmd_rule_add,
         "rule_del":     content_mod.cmd_rule_del,
@@ -116,14 +126,18 @@ async def _call(canon: str, message: Message, bot: Bot) -> bool:
     if fn is None:
         log.info(f"алиас '{canon}' распознан, но хендлер не реализован")
         return False
-    await _invoke(fn, message, bot)
+    await _invoke(fn, message, bot, state)
     return True
-async def _invoke(fn, message: Message, bot: Bot):
+
+
+async def _invoke(fn, message: Message, bot: Bot, state: FSMContext):
     import inspect
     sig = inspect.signature(fn)
     kwargs = {}
     if "bot" in sig.parameters:
         kwargs["bot"] = bot
+    if "state" in sig.parameters:
+        kwargs["state"] = state
     try:
         return await fn(message, **kwargs)
     except TypeError as e:

@@ -18,13 +18,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from pathlib import Path
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from config import BOT_TOKEN, PROXY_URL, ADMIN_IDS
 from db import init_db, close_db, ensure_admin
-from middlewares import ErrorMiddleware, UserMiddleware, RateLimitMiddleware
+from middlewares import (
+    ErrorMiddleware,
+    RateLimitMiddleware,
+    SettingsMiddleware,
+    UserMiddleware,
+)
 from functions_settings import load_settings
 from utils.logs import setup_logging
 from utils.backup import backup
@@ -32,11 +38,53 @@ from version import __version__, __build_date__
 from commands_menu import setup_commands
 from handlers import (base, user, admin, moderation, reputation, misc,
                       version, antispam, greeting, stats,
-                      rules, whois, fun, quotes, content, aliases_router, chatstats, economy)
+                      rules, whois, fun, quotes, content, aliases_router,
+                      chatstats, economy, confirmations)
 import time
 setup_logging()
 log = logging.getLogger("iris")
 HEARTBEAT_FILE = Path("data/heartbeat.txt")
+BOT_LOCK_FILE = Path("data/bot.lock")
+def _read_lock_pid(lock_path: Path) -> int | None:
+    try:
+        text = lock_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+def _pid_is_alive(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+def acquire_bot_lock():
+    BOT_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            fd = os.open(BOT_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+            return
+        except FileExistsError:
+            pid = _read_lock_pid(BOT_LOCK_FILE)
+            if _pid_is_alive(pid):
+                raise RuntimeError(f"бот уже запущен (pid {pid})")
+            try:
+                BOT_LOCK_FILE.unlink(missing_ok=True)
+            except OSError:
+                pass
+def release_bot_lock():
+    try:
+        BOT_LOCK_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
 def _write_heartbeat():
     try:
         HEARTBEAT_FILE.write_text(str(time.time()), encoding="utf-8")
@@ -81,8 +129,11 @@ async def main():
     dp = Dispatcher()
     user_mw = UserMiddleware()
     error_mw = ErrorMiddleware()
+    settings_mw = SettingsMiddleware()
     dp.message.outer_middleware(error_mw)
+    dp.message.outer_middleware(settings_mw)
     dp.callback_query.outer_middleware(error_mw)
+    dp.callback_query.outer_middleware(settings_mw)
     dp.chat_member.outer_middleware(error_mw)
     dp.message.middleware(user_mw)
     dp.message.middleware(RateLimitMiddleware(limit=15, window=1.0))
@@ -104,6 +155,7 @@ async def main():
     dp.include_router(economy.router)
     dp.include_router(chatstats.router)
     dp.include_router(antispam.router)
+    dp.include_router(confirmations.router)
     hb_task = asyncio.create_task(_heartbeat_loop())
     backup_task = asyncio.create_task(_periodic_backup())
     try:
@@ -122,6 +174,11 @@ async def main():
         await bot.session.close()
 if __name__ == "__main__":
     try:
+        acquire_bot_lock()
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         log.info("остановлен")
+    except RuntimeError as exc:
+        log.warning(str(exc))
+    finally:
+        release_bot_lock()

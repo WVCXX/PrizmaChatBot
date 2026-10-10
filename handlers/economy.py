@@ -165,8 +165,10 @@ async def cmd_rob(message: Message):
             parse_mode="HTML",
         )
     else:
-        fine = max(1, int(me["balance"] * 0.10))
-        await inc_field(me["id"], "balance", -fine)
+        wallet_balance = max(0, me["balance"])
+        fine = min(wallet_balance, max(1, int(wallet_balance * 0.10)))
+        if fine:
+            await inc_field(me["id"], "balance", -fine)
         await message.answer(
             f"🚨 Ограбление провалилось!\n"
             f"Штраф: <b>{fine}</b> 💎",

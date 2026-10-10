@@ -16,25 +16,56 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 import datetime
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
-from db import get_user, inc_field, set_field, log_rep, top_by
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from db import count_by, get_user, inc_field, set_field, log_rep, top_by
 from utils.text import hlink
 from emojis import Emoji
+from utils.pagination import page_window, pagination_keyboard
 router = Router()
 @router.message(Command("top"))
 async def cmd_top(message: Message):
-    users = await top_by("reputation", 10, min_value=1)
-    if not users:
+    text, keyboard = await _top_page(1)
+    if text is None:
         await message.answer("Топ пуст")
         return
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+async def _top_page(
+    page: int,
+) -> tuple[str | None, InlineKeyboardMarkup | None]:
+    total = await count_by("reputation", min_value=1)
+    current_page, total_pages, offset = page_window(total, page)
+    users = await top_by(
+        "reputation",
+        limit=10,
+        min_value=1,
+        offset=offset,
+    )
+    if not users:
+        return None, None
     lines = ["🏆 <b>Топ по репутации</b>"]
     medals = ["🥇", "🥈", "🥉"]
     for i, u in enumerate(users):
-        prefix = medals[i] if i < 3 else f"{i+1}."
+        position = offset + i
+        prefix = medals[position] if position < 3 else f"{position + 1}."
         lines.append(f"{prefix} {hlink(u['nick'], u['id'])} — {u['reputation']}")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    return "\n".join(lines), pagination_keyboard(
+        "top", current_page, total_pages
+    )
+@router.callback_query(F.data.startswith("page:top:"))
+async def cb_top_page(cb: CallbackQuery):
+    try:
+        page = int(cb.data.split(":")[2])
+    except (AttributeError, IndexError, ValueError):
+        await cb.answer("Некорректная страница", show_alert=True)
+        return
+    text, keyboard = await _top_page(page)
+    if text is None:
+        await cb.answer("Топ пуст", show_alert=True)
+        return
+    await cb.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await cb.answer()
 @router.message(Command("rep", "реп"))
 async def cmd_rep(message: Message):
     if not message.reply_to_message:

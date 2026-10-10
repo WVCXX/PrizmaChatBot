@@ -19,7 +19,13 @@ import datetime
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from db import _conn
+from db import (
+    stats_all as _stats_all,
+    stats_day as _stats_day,
+    stats_hour as _stats_hour,
+    stats_month as _stats_month,
+    stats_week as _stats_week,
+)
 from emojis import Emoji
 router = Router()
 WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -29,47 +35,6 @@ def _bar(value: int, max_value: int, width: int = 12) -> str:
     filled = int(round(value / max_value * width))
     filled = max(0, min(width, filled))
     return "█" * filled + "░" * (width - filled)
-async def _stats_hour(chat_id: int, date: str) -> list[dict]:
-    async with _conn.execute(
-        "SELECT hour, count FROM message_stats WHERE chat_id=? AND date=? ORDER BY hour",
-        (chat_id, date),
-    ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-async def _stats_day(chat_id: int, days: int = 14) -> list[dict]:
-    since = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
-    async with _conn.execute(
-        "SELECT date, SUM(count) AS total FROM message_stats "
-        "WHERE chat_id=? AND date>=? GROUP BY date ORDER BY date",
-        (chat_id, since),
-    ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-async def _stats_week(chat_id: int, weeks: int = 8) -> list[dict]:
-    since = (datetime.date.today() - datetime.timedelta(weeks=weeks)).isoformat()
-    async with _conn.execute(
-        "SELECT strftime('%Y-W%W', date) AS wk, SUM(count) AS total "
-        "FROM message_stats WHERE chat_id=? AND date>=? "
-        "GROUP BY wk ORDER BY wk",
-        (chat_id, since),
-    ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-async def _stats_month(chat_id: int, months: int = 6) -> list[dict]:
-    since = (datetime.date.today() - datetime.timedelta(days=months * 31)).isoformat()
-    async with _conn.execute(
-        "SELECT strftime('%Y-%m', date) AS mo, SUM(count) AS total "
-        "FROM message_stats WHERE chat_id=? AND date>=? "
-        "GROUP BY mo ORDER BY mo",
-        (chat_id, since),
-    ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-async def _stats_all(chat_id: int) -> dict:
-    async with _conn.execute(
-        "SELECT COUNT(*) AS days, SUM(count) AS total, "
-        "MIN(date) AS first, MAX(date) AS last "
-        "FROM message_stats WHERE chat_id=?",
-        (chat_id,),
-    ) as cur:
-        row = await cur.fetchone()
-        return dict(row) if row else {}
 @router.message(Command("chat_stats", "стата_чата"))
 async def cmd_chat_stats(message: Message):
     data = await _stats_all(message.chat.id)
